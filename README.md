@@ -1,4 +1,4 @@
-Classification of messages into Spam and Non-Spam
+Classification of messages into Spam and Non-Spam. The data can be found at https://archive.ics.uci.edu/ml/datasets/Spambase
 ================
 Manoj Bhandari
 
