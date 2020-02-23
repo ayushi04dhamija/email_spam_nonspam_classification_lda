@@ -1,0 +1,198 @@
+---
+title: "Classification of messages into Spam and Non-Spam"
+author: "Manoj Bhandari"
+output:
+  rmarkdown::github_document
+---
+
+
+# Classification of E-Mail messages into spam and non-spam using LDA
+ 
+ ***
+
+Load the required packages to workspace
+```{r loadPackages, warning=FALSE, message=FALSE, results='hide' }
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(data.table, MASS, caret, ggplot2, dplyr, gains)
+```
+
+## Read the dataset of e-mail messages which will be used for classification into spam and non-spam.
+
+```{r warning=FALSE, message=FALSE }
+#Read the spambase.data file
+e.data <- fread("spambase.data")
+email.data <- data.frame(e.data)
+
+#Read the spambase.names file
+e.names <- read.csv("spambase.names", sep=":", header = FALSE, skip =33)
+e.names.mat <- as.matrix(e.names[-2])
+
+#Rename the column names of spambase.data file
+colnames(email.data) <- c(e.names.mat,"Spam/Non-Spam")
+```
+
+
+## Partition the data into Training and Validation sets and normalize them.
+
+```{r warning=FALSE, message=FALSE }
+#Set seed
+set.seed(42)
+
+#Generate training indices
+train.indices <- createDataPartition(email.data$`Spam/Non-Spam`, p = 0.8, list = FALSE)
+#Get the training data
+training <- email.data[train.indices, ]
+#Get the validation data
+validation <- email.data[-train.indices, ]
+
+#Normalize the data to be used in LDA
+email.normalized <- preProcess(training[,1:57], method = c("center","scale"))
+email.train <- predict(email.normalized, training)
+email.validation <- predict(email.normalized, validation)
+```
+
+***
+## Let's examine how each predictor differs between the spam and non-spam e-mails by comparing the spam-class average and non-spam-class average. Identify 10 predictors for which the difference between the spam-class average and non- spam class average is highest.
+
+```{r warning=FALSE, message=FALSE }
+#Get rows where Spam/Non-Spam = 1(Spam)
+spam.class <- email.data %>% filter(email.data$`Spam/Non-Spam` == 1)
+#Get rows where Spam/Non-Spam(Spam) = 0(Non-Spam)
+non.spam.class <- email.data %>% filter(email.data$`Spam/Non-Spam` == 0)
+
+#Find the column means of Spam class
+avg.spam <- colMeans(spam.class[,1:57])
+#Find the column means of Non-Spam class
+avg.nonspam <- colMeans(non.spam.class[,1:57])
+
+#Find the absolute difference between values of spam and non-spam class
+pred.diff <- abs(avg.spam - avg.nonspam)
+#Load the mean difference values into a vector
+pred.vec <- as.vector(pred.diff)
+#Get the column names of the difference values stored in vector
+names(pred.vec) <- names(pred.diff)
+
+#Get the top 10 predictors with highest difference in mean values
+top.ten <- head(sort(pred.vec, decreasing = TRUE), 10)
+#Get the names of the top ten predictors and load it into a dataframe
+top.ten.names <- as.data.frame(names(top.ten))
+
+#Print the top ten predictor values
+colnames(top.ten.names) <- c("The top ten predictors")
+top.ten.names
+```
+
+***
+## Perform a linear discriminant analysis using the training dataset. Include only 10 predictors identified in the question above in the model.
+
+```{r warning=FALSE, message=FALSE }
+#Store the top ten predictors in a variable
+col1 <- names(top.ten)
+cols <- c(col1,'Spam/Non-Spam')
+#Get the data from normalized training dataset having only top ten predictors
+pred.data.train <- email.train[, cols]
+pred.data.valid <- email.validation[, cols]
+
+#Apply the LDA on the normalized training data having top ten predictors
+lda.model <- lda( `Spam/Non-Spam`~. , data = pred.data.train)
+```
+
+***
+## Let is examine the prior probabilities.
+
+```{r warning=FALSE, message=FALSE }
+#Get the prior probabilities and print them
+prior.probablities <- lda.model$prior
+prior.probablities
+```
+
+***
+
+### The coefficients of linear discriminants are partial contributors of the equation for discriminant function. These multiplied by respective predictor variable calculate the LDA score.
+
+### Given below are the co-efficients for the spambase data
+
+```{r warning=FALSE, message=FALSE }
+lda.model$scaling
+```
+
+***
+## Let us generate linear discriminants using your analysis and see how are they used in classifying spams and non-spams.
+
+
+```{r warning=FALSE, message=FALSE }
+#Predictions on validation dataset
+predictions <- predict(lda.model, pred.data.valid)
+top.20.preds <- head(predictions$posterior,20)
+top.20.preds
+```
+
+### The LDA score from the equation are converted into probabilities of belonging to a class. The probability value is compared to either pre-defined value (50/50) or a modified value and then that record is classified. For eg., In the first instance of the output of the code below, 0.6459 > 0.354 hence the email will be classified as non-spam.
+
+***
+
+### There is one linear discriminant in the model. Since there are only two categories in the model: Spam and non-spam; one linear discriminant is enough for classification.
+
+***
+## Let us generate LDA plot using the training and validation data to examine what information is presented in these plots and how are they different.
+
+```{r warning=FALSE, message=FALSE }
+#Predictions for training data
+train.preds <- lda(`Spam/Non-Spam`~. , data = pred.data.train)
+#Plot training data predictions
+plot(train.preds)
+
+#Predictions for validation data
+valid.preds <- lda(`Spam/Non-Spam`~. , data = pred.data.valid)
+#Plot validation data predictions
+plot(valid.preds)
+```
+
+## From both training data and validation data we observe that for Non-Spam, most of the values are towards the left 0 while for spam, most of the values are towards the right 0. Hence our LDA has maximised the separatibility between the two classes.
+
+***
+## Let us generate the relevant confusion matrix to examine various metrics?
+
+### As observed from the results below, the Sensitivity is *0.911* and Specificity is *0.671*
+
+```{r warning=FALSE, message=FALSE }
+Conf.mat<- table(predictions$class, pred.data.valid$`Spam/Non-Spam`)
+confusionMatrix(Conf.mat)
+```
+
+***
+## Let's generate lift and decile charts for the validation dataset and evaluate the effectiveness of the model in identifying spams.
+
+```{r warning=FALSE, message=FALSE }
+
+#Plot the Lift Chart
+gain.data <- gains(as.numeric(pred.data.valid$`Spam/Non-Spam`),predictions$x[,1])
+plot(c(0,gain.data$cume.pct.of.total*sum(as.numeric(pred.data.valid$`Spam/Non-Spam`)))
+     ~c(0,gain.data$cume.obs),
+     xlab = 'No.Of.Cases', ylab = 'Cumulative',
+     main = "Lift Chart for Predictions",
+     col = "seagreen",
+     type = "l")
+lines(c(0,sum(as.numeric(pred.data.valid$`Spam/Non-Spam`)))~c(0,dim(email.validation)[1]), lty = 5)
+
+#Plot the Decile Lift Chart
+heights.data <- gain.data$mean.resp/mean(as.numeric(pred.data.valid$`Spam/Non-Spam`))
+barplot(heights.data, names.arg = gain.data$depth,
+        ylim = c(0,2.5),
+        col = "seagreen",
+        xlab = "Percentile",
+        ylab = "Mean Response",
+        main = "Decile-wise Lift Chart for Predictions")
+```
+### From above lift chart, we observe that our model is performing pretty well when compared to naive benchmark. For eg., if we choose top 400 records, our model predicts it correctly for about 300 of them as compared to 150 in random assignment
+
+### From the Decile chart we can see that if we select top 30% of the records with highest propensities we will still be performing twice as better than random assignment.
+
+***
+
+## Let us check if accuracy of model changes if I use a probability threshold of 0.2
+
+```{r warning=FALSE, message=FALSE }
+confusionMatrix(as.factor(ifelse(predictions$x>0.2, 1, 0)), predictions$class)
+```
+### From the above confusion matrix we can see that the accuracy of the model has increased if we use the probability threashold of 0.2.
