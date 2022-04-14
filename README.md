@@ -1,6 +1,6 @@
 Classification of messages into Spam and Non-Spam. Source of data:  https://archive.ics.uci.edu/ml/datasets/Spambase
 ================
-Manoj Bhandari
+
 
 # Classification of E-Mail messages into spam and non-spam using LDA
 
